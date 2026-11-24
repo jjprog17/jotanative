@@ -1055,6 +1055,23 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         Native.note("input: player 1 " + (key.isEmpty() ? "automatic" : "chosen") + " (the in-game panel): " + (one != null ? one.name : "no gamepad"));
     }
 
+    /** JOTANATIVE: the device on player 2 (null: none) */
+    PadOrder.Pad playerTwo() { return order != null ? order.two() : null; }
+    /** JOTANATIVE: Player 2: this device from now on and at later starts (a descriptor; "" = automatic, PadOrder.chooseSecond) */
+    void choosePlayerTwo(String key) {
+        Prefs.padSecond(this, key);
+        if (order == null) return;
+        order.chooseSecond(key);
+        PadOrder.Pad two = order.two();
+        Native.note("input: player 2 " + (key.isEmpty() ? "automatic" : "chosen") + " (the in-game panel): " + (two != null ? two.name : "no gamepad"));
+    }
+    /** JOTANATIVE: the handheld's own controls on or off, from now on and at later starts (PadOrder.builtInOff) */
+    void useBuiltIn(boolean on) {
+        Prefs.padBuiltIn(this, on);
+        if (order != null) order.builtInOff(!on);
+        Native.note("input: the handheld's own controls " + (on ? "on" : "off") + " (the in-game panel)");
+    }
+
     /** The in-game panel's Button mapping shortcut: this game as Game settings sees it */
     Game game() {
         android.content.Intent i = getIntent();
@@ -1266,7 +1283,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 return pl;
             }
             @Override public int player(int id) { return Native.devicePlayer(id); }
-        }, Prefs.padFirst(this));
+            @Override public void remove(PadOrder.Pad p) {   // JOTANATIVE: the handheld's own controls turned off: its player goes back, as when a device is removed
+                Native.deviceRemoved(p.id);
+                if (pads.remove(p.id)) controls.setGamepad(!pads.isEmpty());
+            }
+        }, Prefs.padFirst(this), Prefs.padSecond(this), !Prefs.padBuiltIn(this));   // JOTANATIVE: Player 2 and the handheld's own controls
         ui.postDelayed(padPlayers, 1000);
         java.util.List<PadOrder.Pad> now = new java.util.ArrayList<>();
         for (int id : inputManager.getInputDeviceIds()) { InputDevice d = InputDevice.getDevice(id); if (gamepadLike(d)) now.add(pad(d)); }
@@ -1536,6 +1557,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (e.getAction() == KeyEvent.ACTION_UP && (e.getKeyCode() == KeyEvent.KEYCODE_BUTTON_A || e.getKeyCode() == KeyEvent.KEYCODE_BUTTON_START)) unpause();
             return true;
         }
+        // JOTANATIVE: the handheld's own controls off: its pad buttons reach neither the game nor the system (B would be Back); its other keys go on as before
+        if (input && gamepad(e.getSource()) && order != null && order.blocked(e.getDeviceId()) && padKey(e.getKeyCode())) return true;
         // Back from the phone and keyboard keys stay with the launcher: the host takes only pad buttons
         // A device without a player gets one from its first pad key (PadOrder.active: a phone's own gamepad-like device that never sends one takes none)
         if (input && gamepad(e.getSource()) && e.getDevice() != null && !e.getDevice().isVirtual()

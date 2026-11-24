@@ -1,0 +1,93 @@
+# JOTANATIVE: builds JotaNative (this fork's app, dev.nxnative.android.jota, beside Peanuts Native) on a GitHub-hosted Linux runner and keeps the APK as the
+# run's artifact (Actions › the run › Artifacts › JotaNative). Run it by hand (Actions › jotanative › Run workflow) or by pushing to main.
+#
+# The on-device packer's stage (android/ONDEVICE.md: CPython, the translator, SPIRV-Tools) comes from the official Peanuts Native release of the same version
+# (peanuts/VERSION): its jniLibs and assets/pack/python.zip are this tree's stage when the tree is that release's, which the build checks
+# (xlate_tree.py --check-lib). The games are the ones that release carries (its assets/profiles/<title ID>.profile.bin).
+# The APK is signed with android/app/jota-debug.keystore, the same key every run, so a new APK installs over the last one and keeps its games and saves.
+name: jotanative
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jotanative-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  apk:
+    name: Build JotaNative
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Python packages the build tools import
+        run: python -m pip install -r .github/requirements/lint.txt
+      - name: Android SDK packages (NDK, CMake, platform)
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" "cmake;3.22.1" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+          echo "sdk.dir=$SDK" > android/app/local.properties
+          echo "ANDROID_NDK_HOME=$SDK/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: The official release of this version (its packer stage and game list)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(cat peanuts/VERSION)
+          mkdir -p "$RUNNER_TEMP/rel"
+          for tag in "v$VER" "$VER" "peanuts-native-$VER"; do
+            gh release download "$tag" --repo igawa6/peanuts-native --pattern '*.apk' --dir "$RUNNER_TEMP/rel" 2>/dev/null && { echo "release $tag"; break; }
+          done
+          APK=$(ls "$RUNNER_TEMP"/rel/*.apk 2>/dev/null | head -1)
+          [ -n "$APK" ] || { echo "::error::No Peanuts Native $VER release APK on igawa6/peanuts-native: sync this fork to a released version"; exit 1; }
+          echo "Using $APK"
+          S="$RUNNER_TEMP/stage"; mkdir -p "$S/lib" "$S/python" "$RUNNER_TEMP/x"
+          unzip -q "$APK" 'lib/arm64-v8a/*' 'assets/pack/python.zip' 'assets/profiles/*' -d "$RUNNER_TEMP/x"
+          for l in libpython3.14.so libnxpack.so libzbicdec.so libcra.so libdmsh_xlate.so libSPIRV-Tools-shared.so; do
+            cp "$RUNNER_TEMP/x/lib/arm64-v8a/$l" "$S/lib/"
+          done
+          unzip -q "$RUNNER_TEMP/x/assets/pack/python.zip" -d "$S/python"
+          GAMES=$(ls "$RUNNER_TEMP/x/assets/profiles" | sed -n 's/^\([0-9A-Fa-f]\{16\}\)\.profile\.bin$/\1/p' | sort -u | paste -sd, -)
+          [ -n "$GAMES" ] || { echo "::error::The release APK lists no games (assets/profiles)"; exit 1; }
+          echo "Games: $GAMES"
+          echo "NX_PACK_STAGE=$S" >> "$GITHUB_ENV"
+          echo "JOTA_GAMES=$GAMES" >> "$GITHUB_ENV"
+      - name: Signing key (the same every run)
+        run: |
+          mkdir -p ~/.android
+          cp android/app/jota-debug.keystore ~/.android/debug.keystore
+      - name: Build the APK
+        working-directory: android/app
+        run: |
+          ./gradlew --no-daemon apk -PnxApp=peanuts -PnxAppId=jota -PnxLabel=JotaNative -PnxGames="$JOTA_GAMES" -PnxPackStage="$NX_PACK_STAGE"
+          mkdir -p "$RUNNER_TEMP/out"
+          cp out/*.apk "$RUNNER_TEMP/out/JotaNative.apk"
+          ls -la "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JotaNative
+          path: ${{ runner.temp }}/out/JotaNative.apk
+          if-no-files-found: error
+          retention-days: 30

@@ -64,7 +64,7 @@ final class SidePanel extends FrameLayout {
     }
 
     // The ids of the choices a rebuild gives the focus back to (restyle)
-    private static final int ID_SIZE = 5000, ID_TEXT = 5100, ID_FIT = 5200, ID_MAP = 5300, ID_ONE = 5400, ID_RES = 5500, ID_RES_PRESET = 5590, ID_CONSOLE = 5600 /* PEANUTS: the two buttons of Console mode */;
+    private static final int ID_SIZE = 5000, ID_TEXT = 5100, ID_FIT = 5200, ID_MAP = 5300, ID_ONE = 5400, ID_TWO = 5410, ID_BUILTIN = 5420 /* JOTANATIVE */, ID_RES = 5500, ID_RES_PRESET = 5590, ID_CONSOLE = 5600 /* PEANUTS: the two buttons of Console mode */;
 
     SidePanel(Activity a, Rows rows) {
         super(a);
@@ -867,6 +867,27 @@ final class SidePanel extends FrameLayout {
                 restyle(ID_ONE);
             }).setNegativeButton("Cancel", null).show());
         });
+        // JOTANATIVE: Player 2, a choice among the gamepads connected as for Player 1, and the handheld's own controls on or off (PadOrder), kept for every game
+        PadOrder.Pad two = ga.playerTwo();
+        String second = Prefs.padSecond(act);
+        Button b2 = row(ID_TWO, "Player 2", (two != null ? two.name : "none") + (second.isEmpty() ? " (automatic)" : ""));
+        b2.setOnClickListener(v -> {
+            String[] names = new String[pads.size() + 1];
+            names[0] = "Automatic";
+            int checked = 0;
+            for (int i = 0; i < pads.size(); i++) { names[i + 1] = pads.get(i).name; if (!second.isEmpty() && second.equals(pads.get(i).key)) checked = i + 1; }
+            padDialog(new AlertDialog.Builder(act).setTitle("Player 2").setSingleChoiceItems(names, checked, (d, w) -> {
+                ga.choosePlayerTwo(w == 0 ? "" : pads.get(w - 1).key);
+                d.dismiss();
+                restyle(ID_TWO);
+            }).setNegativeButton("Cancel", null).show());
+        });
+        android.widget.CheckBox own = new android.widget.CheckBox(act);
+        own.setId(ID_BUILTIN);
+        own.setText("Use the handheld's own controls");
+        own.setChecked(Prefs.padBuiltIn(act));
+        own.setOnCheckedChangeListener((c, on) -> { ga.useBuiltIn(on); restyle(ID_BUILTIN); });
+        box.addView(own);
     }
 
     /** Twice a second while open: what the game runs at, which caps it can hold, and the frame generation's state */

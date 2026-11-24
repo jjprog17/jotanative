@@ -27,6 +27,7 @@ public final class PadOrderJvmTest {
             return 0;
         }
         @Override public int player(int id) { for (int i = 0; i < owner.length; i++) if (owner[i] == id) return i; return -1; }
+        @Override public void remove(PadOrder.Pad p) { int at = player(p.id); if (at >= 0) owner[at] = -1; }   // JOTANATIVE
     }
 
     static final PadOrder.Pad XIAOMI = new PadOrder.Pad(3, "d-uinput", "uinput-xiaomi", false, false, 0),            // the phone's own: built in, no vendor
@@ -107,6 +108,38 @@ public final class PadOrderJvmTest {
         o.start(Arrays.asList(XIAOMI, GAMESIR));
         o.choose("d-uinput");
         check(h.player(3) == 0 && h.player(22) == 1 && o.plays(3), "a silent device chosen: player 1");
+
+        // JOTANATIVE: Player 2 chosen at the start: three controllers, the chosen one is player 2 although its id is the highest
+        h = new Slots(); o = new PadOrder(h, "", "d-xbox", false);
+        o.start(Arrays.asList(XBOX, KEYBOARD, GAMESIR));
+        check(h.player(22) == 0 && h.player(30) == 1 && h.player(40) == 2, "player 2 chosen at the start");
+        check(o.two() == XBOX, "two()");
+        // chosen while playing: it moves to player 2, player 1 stays
+        h = new Slots(); o = new PadOrder(h, "");
+        o.start(Arrays.asList(XBOX, KEYBOARD, GAMESIR));
+        check(h.player(22) == 0 && h.player(30) == 1 && h.player(40) == 2, "automatic order");
+        o.chooseSecond("d-kbd");
+        check(h.player(22) == 0 && h.player(40) == 1 && h.player(30) == 2, "player 2 chosen while playing: it moves to player 2");
+        // the chosen player 2 never takes player 1 from another controller
+        h = new Slots(); o = new PadOrder(h, "", "d-gamesir", false);
+        o.start(Arrays.asList(GAMESIR));
+        check(h.player(22) == 0, "alone: player 1");
+        o.connected(XBOX);
+        check(h.player(30) == 0 && h.player(22) == 1, "another controller connecting is player 1, the chosen one player 2");
+
+        // JOTANATIVE: the handheld's own controls off: its pad never gets a player, two controllers are players 1 and 2
+        h = new Slots(); o = new PadOrder(h, "", "", true);
+        o.start(Arrays.asList(BUILT_IN, GAMESIR, XBOX));
+        check(!o.active(BUILT_IN) && h.player(5) == -1 && o.blocked(5), "built in off: no player from input");
+        check(h.player(22) == 0 && h.player(30) == 1, "built in off: the controllers are players 1 and 2");
+        // turned off while the built-in pad is player 1: it gives its player back, a controller is player 1
+        h = new Slots(); o = new PadOrder(h, "d-builtin");
+        o.start(Arrays.asList(BUILT_IN, GAMESIR));
+        check(h.player(5) == 0 && h.player(22) == 1, "built in chosen: player 1");
+        o.builtInOff(true);
+        check(h.player(5) == -1 && h.player(22) == 0 && !o.plays(5), "built in off: a controller on player 1");
+        o.connected(XBOX);
+        check(h.player(30) == 1, "the next controller is player 2");
         System.out.println("ok");
     }
 }
