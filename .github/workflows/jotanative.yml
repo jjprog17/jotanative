@@ -4,6 +4,7 @@
 # The on-device packer's stage (android/ONDEVICE.md: CPython, the translator, SPIRV-Tools) comes from the official Peanuts Native release of the same version
 # (peanuts/VERSION): its jniLibs and assets/pack/python.zip are this tree's stage when the tree is that release's, which the build checks
 # (xlate_tree.py --check-lib). The games are the ones that release carries (its assets/profiles/<title ID>.profile.bin).
+# Each build also replaces the APK on this repository's release "latest" (Releases › JotaNative › JotaNative.apk), downloadable on the handheld itself.
 # The APK is signed with android/app/jota-debug.keystore, the same key every run, so a new APK installs over the last one and keeps its games and saves.
 name: jotanative
 
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # the release "latest", which holds JotaNative.apk
 
 concurrency:
   group: jotanative-${{ github.ref }}
@@ -93,3 +94,15 @@ jobs:
           path: ${{ runner.temp }}/out/JotaNative.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Publish on the release "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(cat peanuts/VERSION)
+          NOTES="JotaNative (Peanuts Native $VER with Player 2 and the handheld's own controls on/off). Built from ${GITHUB_SHA::7}."
+          if gh release view latest --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload latest "$RUNNER_TEMP/out/JotaNative.apk" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit latest --notes "$NOTES" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create latest "$RUNNER_TEMP/out/JotaNative.apk" --title "JotaNative" --notes "$NOTES" --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"
+          fi
