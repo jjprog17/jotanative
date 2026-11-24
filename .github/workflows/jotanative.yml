@@ -57,10 +57,12 @@ jobs:
         run: |
           VER=$(cat peanuts/VERSION)
           mkdir -p "$RUNNER_TEMP/rel"
-          for tag in "v$VER" "$VER" "peanuts-native-$VER"; do
+          # the release tags are v<version>-<n> (v0.1.7-1): the newest of this version first, then the plain names
+          TAGS=$(gh release list --repo igawa6/peanuts-native --limit 100 --json tagName --jq '.[].tagName' | grep -E "^v?${VER//./\\.}(-[0-9]+)?$" | sort -t- -k2 -n -r || true)
+          for tag in $TAGS "v$VER" "$VER"; do
             gh release download "$tag" --repo igawa6/peanuts-native --pattern '*.apk' --dir "$RUNNER_TEMP/rel" 2>/dev/null && { echo "release $tag"; break; }
           done
-          APK=$(ls "$RUNNER_TEMP"/rel/*.apk 2>/dev/null | head -1)
+          APK=$(find "$RUNNER_TEMP/rel" -name '*.apk' | head -1)
           [ -n "$APK" ] || { echo "::error::No Peanuts Native $VER release APK on igawa6/peanuts-native: sync this fork to a released version"; exit 1; }
           echo "Using $APK"
           S="$RUNNER_TEMP/stage"; mkdir -p "$S/lib" "$S/python" "$RUNNER_TEMP/x"
